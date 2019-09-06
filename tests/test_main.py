@@ -1,3 +1,4 @@
+import json
 from enum import Enum
 from typing import Any, ClassVar, List, Mapping
 
@@ -396,6 +397,86 @@ def test_const_with_wrong_value():
             'ctx': {'given': 4, 'permitted': [3]},
         }
     ]
+
+
+def test_const_list():
+    class SubModel(BaseModel):
+        b: int
+
+    class Model(BaseModel):
+        a: List[SubModel] = Schema([SubModel(b=1), SubModel(b=2), SubModel(b=3)], const=True)
+        b: List[SubModel] = Schema([{'b': 4}, {'b': 5}, {'b': 6}], const=True)
+
+    m = Model()
+    assert m.a == [SubModel(b=1), SubModel(b=2), SubModel(b=3)]
+    assert m.b == [SubModel(b=4), SubModel(b=5), SubModel(b=6)]
+
+
+def test_const_list_with_wrong_value():
+    class SubModel(BaseModel):
+        b: int
+
+    class Model(BaseModel):
+        a: List[SubModel] = Schema([SubModel(b=1), SubModel(b=2), SubModel(b=3)], const=True)
+        b: List[SubModel] = Schema([{'b': 4}, {'b': 5}, {'b': 6}], const=True)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Model(a=[{'b': 3}, {'b': 1}, {'b': 2}], b=[{'b': 6}, {'b': 5}])
+
+    assert exc_info.value.errors() == [
+        {
+            'ctx': {
+                'given': [{'b': 3}, {'b': 1}, {'b': 2}],
+                'permitted': [[SubModel(b=1), SubModel(b=2), SubModel(b=3)]],
+            },
+            'loc': ('a',),
+            'msg': 'unexpected value; permitted: [<SubModel b=1>, <SubModel b=2>, <SubModel b=3>]',
+            'type': 'value_error.const',
+        },
+        {
+            'ctx': {'given': [{'b': 6}, {'b': 5}], 'permitted': [[{'b': 4}, {'b': 5}, {'b': 6}]]},
+            'loc': ('b',),
+            'msg': "unexpected value; permitted: [{'b': 4}, {'b': 5}, {'b': 6}]",
+            'type': 'value_error.const',
+        },
+    ]
+
+    with pytest.raises(ValidationError) as exc_info:
+        Model(a=[SubModel(b=3), SubModel(b=1), SubModel(b=2)], b=[SubModel(b=3), SubModel(b=1)])
+
+    assert exc_info.value.errors() == [
+        {
+            'ctx': {
+                'given': [SubModel(b=3), SubModel(b=1), SubModel(b=2)],
+                'permitted': [[SubModel(b=1), SubModel(b=2), SubModel(b=3)]],
+            },
+            'loc': ('a',),
+            'msg': 'unexpected value; permitted: [<SubModel b=1>, <SubModel b=2>, <SubModel b=3>]',
+            'type': 'value_error.const',
+        },
+        {
+            'ctx': {'given': [SubModel(b=3), SubModel(b=1)], 'permitted': [[{'b': 4}, {'b': 5}, {'b': 6}]]},
+            'loc': ('b',),
+            'msg': "unexpected value; permitted: [{'b': 4}, {'b': 5}, {'b': 6}]",
+            'type': 'value_error.const',
+        },
+    ]
+
+
+def test_const_validation_json_serializable():
+    class SubForm(BaseModel):
+        field: int
+
+    class Form(BaseModel):
+        field1: SubForm = Schema({'field': 2}, const=True)
+        field2: List[SubForm] = Schema([{'field': 2}], const=True)
+
+    try:
+        # Fails
+        Form(field1={'field': 1}, field2=[{'field': 1}])
+    except ValidationError as e:
+        # This should not raise an Json error
+        assert json.dumps(e.json())
 
 
 class ValidateAssignmentModel(BaseModel):
